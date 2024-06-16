@@ -5,8 +5,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils.decorators import classonlymethod
 from django.utils.functional import classproperty
 
+from adrf.mixins import (
+    AsyncCreateModelMixin, AsyncDestroyModelMixin, AsyncListModelMixin,
+    AsyncRetrieveModelMixin, AsyncUpdateModelMixin
+)
 from adrf.views import APIView
 from rest_framework.viewsets import ViewSetMixin as DRFViewSetMixin
+from rest_framework.generics import GenericAPIView
 
 
 class ViewSetMixin(DRFViewSetMixin):
@@ -141,10 +146,21 @@ class ViewSet(ViewSetMixin, APIView):
         """
         Checks whether viewset methods are coroutines.
         """
+        actions = [
+            "create",
+            "retrieve",
+            "update",
+            "partial_update",
+            "destroy",
+            "list",
+        ]
+        # We can't actually check _all_ handlers here, since we can't inspect with
+        # cls.get_extra_actions() (causes recusion).
+        methods = [getattr(cls, name) for name in actions if hasattr(cls, name)]
         result = [
-            asyncio.iscoroutinefunction(function)
-            for name, function in cls.__dict__.items()
-            if callable(function) and not name.startswith("__")
+            asyncio.iscoroutinefunction(method)
+            for method in methods
+            if callable(method)
         ]
         is_async = any(result)
         if is_async and not all(result):
@@ -153,3 +169,49 @@ class ViewSet(ViewSetMixin, APIView):
                 "or all async."
             )
         return is_async
+    
+
+class ModelViewSet(
+    AsyncCreateModelMixin,
+    AsyncListModelMixin,
+    AsyncRetrieveModelMixin,
+    AsyncUpdateModelMixin,
+    AsyncDestroyModelMixin,
+    ViewSet,
+    GenericAPIView
+):
+    """
+    Async version of ModelViewSet
+    """
+    async def get_object(self):
+        """
+        Returns the object the view is displaying.
+
+        You may want to override this if you need to provide non-standard
+        queryset lookups.  Eg if objects are referenced using multiple
+        keyword arguments in the url conf.
+        """
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # Perform the lookup filtering.
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+
+        assert lookup_url_kwarg in self.kwargs, (
+            'Expected view %s to be called with a URL keyword argument '
+            'named "%s". Fix your URL conf, or set the `.lookup_field` '
+            'attribute on the view correctly.' %
+            (self.__class__.__name__, lookup_url_kwarg)
+        )
+
+        filter_kwargs = {self.lookup_field: self.kwargs[lookup_url_kwarg]}
+        try:
+            obj = await queryset.aget(**filter_kwargs)
+        except queryset.model.DoesNotExist:
+            raise Http404
+
+        # May raise a permission denied
+        self.check_object_permissions(self.request, obj)
+
+        return obj
+
+    

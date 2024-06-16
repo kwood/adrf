@@ -70,7 +70,7 @@ class APIView(DRFAPIView):
         Dispatch checks if the view is async or not and uses the respective
         async or sync dispatch method.
         """
-        if getattr(self, 'view_is_async', False):
+        if self.view_is_async:
             return self.async_dispatch(request, *args, **kwargs)
         else:
             return self.sync_dispatch(request, *args, **kwargs)
@@ -85,7 +85,7 @@ class APIView(DRFAPIView):
             data = self.metadata_class().determine_metadata(request, self)
             return Response(data, status=status.HTTP_200_OK)
 
-        if getattr(self, 'view_is_async', False):
+        if self.view_is_async:
             async def handler():
                 return await sync_to_async(func)()
         else:
