@@ -1,107 +1,245 @@
-
-import asyncio
 import traceback
+from collections import OrderedDict
 
-from rest_framework.exceptions import ValidationError
-from rest_framework.serializers import (
-    ModelSerializer as DRFModelSerializer,
-    ListSerializer as DRFListSerializer,
-    raise_errors_on_nested_writes
-)
-from rest_framework.utils import model_meta
-from asgiref.sync import sync_to_async
+from async_property import async_property
 from django.db import models
 
+from rest_framework.fields import SkipField
+from rest_framework.serializers import LIST_SERIALIZER_KWARGS
+from rest_framework.serializers import BaseSerializer as DRFBaseSerializer
+from rest_framework.serializers import ListSerializer as DRFListSerializer
+from rest_framework.serializers import ModelSerializer as DRFModelSerializer
+from rest_framework.serializers import Serializer as DRFSerializer
+from rest_framework.serializers import SerializerMetaclass as DRFSerializerMetaclass
+from rest_framework.serializers import model_meta, raise_errors_on_nested_writes
+from rest_framework.utils.serializer_helpers import ReturnDict, ReturnList
 
-class BaseAsyncSerializerMixin:
-    async def is_valid(self, *, raise_exception=False):
-        assert hasattr(self, 'initial_data'), (
-            'Cannot call `.is_valid()` as no `data=` keyword argument was '
-            'passed when instantiating the serializer instance.'
+
+class BaseSerializer(DRFBaseSerializer):
+    """
+    Base serializer class.
+    """
+
+    @classmethod
+    def many_init(cls, *args, **kwargs):
+        allow_empty = kwargs.pop("allow_empty", None)
+        max_length = kwargs.pop("max_length", None)
+        min_length = kwargs.pop("min_length", None)
+        child_serializer = cls(*args, **kwargs)
+        list_kwargs = {
+            "child": child_serializer,
+        }
+        if allow_empty is not None:
+            list_kwargs["allow_empty"] = allow_empty
+        if max_length is not None:
+            list_kwargs["max_length"] = max_length
+        if min_length is not None:
+            list_kwargs["min_length"] = min_length
+        list_kwargs.update(
+            {
+                key: value
+                for key, value in kwargs.items()
+                if key in LIST_SERIALIZER_KWARGS
+            }
         )
+        meta = getattr(cls, "Meta", None)
+        list_serializer_class = getattr(meta, "list_serializer_class", ListSerializer)
+        return list_serializer_class(*args, **list_kwargs)
 
-        if not hasattr(self, '_validated_data'):
-            try:
-                self._validated_data = await self.run_validation(self.initial_data)
-            except ValidationError as exc:
-                self._validated_data = {}
-                self._errors = exc.detail
-            else:
-                self._errors = {}
+    @async_property
+    async def adata(self):
+        if hasattr(self, "initial_data") and not hasattr(self, "_validated_data"):
+            msg = (
+                "When a serializer is passed a `data` keyword argument you "
+                "must call `.is_valid()` before attempting to access the "
+                "serialized `.data` representation.\n"
+                "You should either call `.is_valid()` first, "
+                "or access `.initial_data` instead."
+            )
+            raise AssertionError(msg)
 
-        if self._errors and raise_exception:
-            raise ValidationError(self.errors)
-
-        if not hasattr(self, '_data'):
-            if self.instance is not None and not getattr(self, '_errors', None):
-                self._data = await self.to_representation(self.instance)
-            elif hasattr(self, '_validated_data') and not getattr(self, '_errors', None):
-                self._data = await self.to_representation(self.validated_data)
+        if not hasattr(self, "_data"):
+            if self.instance is not None and not getattr(self, "_errors", None):
+                self._data = await self.ato_representation(self.instance)
+            elif hasattr(self, "_validated_data") and not getattr(
+                self, "_errors", None
+            ):
+                self._data = await self.ato_representation(self.validated_data)
             else:
                 self._data = self.get_initial()
 
-        return not bool(self._errors)
-    
-    @property
-    def data(self):
-        if hasattr(self, 'initial_data') and not hasattr(self, '_validated_data'):
-            msg = (
-                'When a serializer is passed a `data` keyword argument you '
-                'must call `.is_valid()` before attempting to access the '
-                'serialized `.data` representation.\n'
-                'You should either call `.is_valid()` first, '
-                'or access `.initial_data` instead.'
-            )
-            raise AssertionError(msg)
         return self._data
 
-    async def run_validation(self, data):
+    async def ato_representation(self, instance):
+        raise NotImplementedError("`ato_representation()` must be implemented.")
+
+    async def aupdate(self, instance, validated_data):
+        raise NotImplementedError("`aupdate()` must be implemented.")
+
+    async def acreate(self, validated_data):
+        raise NotImplementedError("`acreate()` must be implemented.")
+
+    async def asave(self, **kwargs):
+        assert hasattr(
+            self, "_errors"
+        ), "You must call `.is_valid()` before calling `.asave()`."
+
+        assert (
+            not self.errors
+        ), "You cannot call `.asave()` on a serializer with invalid data."
+
+        # Guard against incorrect use of `serializer.asave(commit=False)`
+        assert "commit" not in kwargs, (
+            "'commit' is not a valid keyword argument to the 'asave()' method."
+            " If you need to access data before committing to the database"
+            " then inspect 'serializer.validated_data' instead. You can also"
+            " pass additional keyword arguments to 'asave()' if you need to"
+            " set extra attributes on the saved model instance. For example:"
+            " 'serializer.asave(owner=request.user)'.'"
+        )
+
+        assert not hasattr(self, "_data"), (
+            "If you need to access data before committing to the database then"
+            " inspect 'serializer.validated_data' instead. "
+        )
+
+        validated_data = {**self.validated_data, **kwargs}
+
+        if self.instance is not None:
+            self.instance = await self.aupdate(self.instance, validated_data)
+            assert (
+                self.instance is not None
+            ), "`aupdate()` did not return an object instance."
+        else:
+            self.instance = await self.acreate(validated_data)
+            assert (
+                self.instance is not None
+            ), "`acreate()` did not return an object instance."
+
+        return self.instance
+
+
+class _Serializer(metaclass=DRFSerializerMetaclass):
+    pass
+
+
+class Serializer(BaseSerializer, _Serializer, DRFSerializer):
+    @async_property
+    async def adata(self):
         """
-        A coroutine version of run_validation.
+        Return the serialized data on the serializer.
         """
-        # There are sync-only methods buried deep in the validation process
-        # for now, take the easy route of calling sync_to_async here — but ideally
-        # we should refactor the validation process to be async-friendly.
-        return await sync_to_async(self.run_validation)(data)
+
+        ret = await super().adata
+
+        return ReturnDict(ret, serializer=self)
+
+    async def ato_representation(self, instance):
+        """
+        Object instance -> Dict of primitive datatypes.
+        """
+
+        ret = OrderedDict()
+        fields = self._readable_fields
+
+        for field in fields:
+            try:
+                attribute = field.get_attribute(instance)
+            except SkipField:
+                continue
+
+            is_drf_field = type(field) in list(
+                DRFModelSerializer.serializer_field_mapping.values()
+            ) + [DRFModelSerializer.serializer_choice_field]
+
+            check_for_none = (
+                attribute.pk if isinstance(attribute, models.Model) else attribute
+            )
+            if check_for_none is None:
+                ret[field.field_name] = None
+            else:
+                if is_drf_field:
+                    repr = field.to_representation(attribute)
+                else:
+                    repr = await field.ato_representation(attribute)
+
+                ret[field.field_name] = repr
+
+        return ret
 
 
-
-class ListSerializer(BaseAsyncSerializerMixin, DRFListSerializer):
-    """
-    Async version of DRF's ListSerializer.
-    """
-    async def to_representation(self, data):
+class ListSerializer(BaseSerializer, DRFListSerializer):
+    async def ato_representation(self, data):
         """
         List of object instances -> List of dicts of primitive datatypes.
         """
         # Dealing with nested relationships, data can be a Manager,
         # so, first get a queryset from the Manager if needed
-        iterable = [d async for d in data.all()] if isinstance(data, models.Manager) else data
 
-        return [
-            self.child.to_representation(item) for item in iterable
-        ]
-    
-    @property
-    def data(self):
-        ret = super().data
+        if isinstance(data, models.Manager):
+            data = data.all()
+
+        if isinstance(data, models.query.QuerySet):
+            return [await self.child.ato_representation(item) async for item in data]
+        else:
+            return [await self.child.ato_representation(item) for item in data]
+
+    async def asave(self, **kwargs):
+        """
+        Save and return a list of object instances.
+        """
+        # Guard against incorrect use of `serializer.asave(commit=False)`
+        assert "commit" not in kwargs, (
+            "'commit' is not a valid keyword argument to the 'asave()' method."
+            " If you need to access data before committing to the database"
+            " then inspect 'serializer.validated_data' instead. You can also"
+            " pass additional keyword arguments to 'asave()' if you need to"
+            " set extra attributes on the saved model instance. For example:"
+            " 'serializer.asave(owner=request.user)'.'"
+        )
+
+        validated_data = [{**attrs, **kwargs} for attrs in self.validated_data]
+
+        if self.instance is not None:
+            self.instance = await self.aupdate(self.instance, validated_data)
+            assert (
+                self.instance is not None
+            ), "`aupdate()` did not return an object instance."
+        else:
+            self.instance = await self.acreate(validated_data)
+            assert (
+                self.instance is not None
+            ), "`acreate()` did not return an object instance."
+
+        return self.instance
+
+    async def aupdate(self, instance, validated_data):
+        raise NotImplementedError(
+            "Serializers with many=True do not support multiple update by "
+            "default, only multiple create. For updates it is unclear how to "
+            "deal with insertions and deletions. If you need to support "
+            "multiple update, use a `ListSerializer` class and override "
+            "`.aupdate()` so you can specify the behavior exactly."
+        )
+
+    @async_property
+    async def adata(self):
+        ret = await super().adata
         return ReturnList(ret, serializer=self)
 
-class ModelSerializer(BaseAsyncSerializerMixin, DRFModelSerializer):
-    """
-    Async version of DRF's ModelSerializer.
-    """
-    class Meta:
-        list_serializer_class = ListSerializer
-
     async def acreate(self, validated_data):
-        raise_errors_on_nested_writes('create', self, validated_data)
+        return [await self.child.acreate(attrs) for attrs in validated_data]
+
+
+class ModelSerializer(Serializer, DRFModelSerializer):
+    async def acreate(self, validated_data):
+        """
+        Create and return a new `Snippet` instance, given the validated data.
+        """
+        raise_errors_on_nested_writes("acreate", self, validated_data)
 
         ModelClass = self.Meta.model
 
-        # Remove many-to-many relationships from validated_data.
-        # They are not valid arguments to the default `.create()` method,
-        # as they require that the instance has already been saved.
         info = model_meta.get_field_info(ModelClass)
         many_to_many = {}
         for field_name, relation_info in info.relations.items():
@@ -113,61 +251,35 @@ class ModelSerializer(BaseAsyncSerializerMixin, DRFModelSerializer):
         except TypeError:
             tb = traceback.format_exc()
             msg = (
-                'Got a `TypeError` when calling `%s.%s.create()`. '
-                'This may be because you have a writable field on the '
-                'serializer class that is not a valid argument to '
-                '`%s.%s.create()`. You may need to make the field '
-                'read-only, or override the %s.create() method to handle '
-                'this correctly.\nOriginal exception was:\n %s' %
-                (
+                "Got a `TypeError` when calling `%s.%s.create()`. "
+                "This may be because you have a writable field on the "
+                "serializer class that is not a valid argument to "
+                "`%s.%s.create()`. You may need to make the field "
+                "read-only, or override the %s.create() method to handle "
+                "this correctly.\nOriginal exception was:\n %s"
+                % (
                     ModelClass.__name__,
                     ModelClass._default_manager.name,
                     ModelClass.__name__,
                     ModelClass._default_manager.name,
                     self.__class__.__name__,
-                    tb
+                    tb,
                 )
             )
             raise TypeError(msg)
 
-        # Save many-to-many relationships after the instance is created.
         if many_to_many:
             for field_name, value in many_to_many.items():
                 field = getattr(instance, field_name)
                 field.set(value)
 
         return instance
-    
-    async def asave(self, **kwargs):
-        assert 'commit' not in kwargs, (
-            "'commit' is not a valid keyword argument to the 'asave()' method. "
-            "If you need to access data before committing to the database then "
-            "inspect 'serializer.validated_data' instead. "
-            "You can also pass additional keyword arguments to 'asave()' if you "
-            "need to set extra attributes on the saved model instance. "
-            "For example: 'serializer.asave(owner=request.user)'.'"
-        )
 
-        validated_data = {**self.validated_data, **kwargs}
-
-        if self.instance is not None:
-            self.instance = await self.aupdate(self.instance, validated_data)
-            assert self.instance is not None, (
-                '`update()` did not return an object instance.'
-            )
-        else:
-            self.instance = await self.acreate(validated_data)
-            assert self.instance is not None, (
-                '`create()` did not return an object instance.'
-            )
-
-        return self.instance
-    
     async def aupdate(self, instance, validated_data):
-        raise_errors_on_nested_writes('update', self, validated_data)
+        raise_errors_on_nested_writes("aupdate", self, validated_data)
         info = model_meta.get_field_info(instance)
 
-        # Simply set each attribute on the instance, and then save it.
+        # Simply set each attribute on the instance, and then asave it.
         # Note that unlike `.create()` we don't need to treat many-to-many
         # relationships as being a special case. During updates we already
         # have an instance pk for the relationships to be associated with.
@@ -183,7 +295,8 @@ class ModelSerializer(BaseAsyncSerializerMixin, DRFModelSerializer):
         # Note that many-to-many fields are set after updating instance.
         # Setting m2m fields triggers signals which could potentially change
         # updated instance and we do not want it to collide with .update()
-        m2m_set_tasks = [getattr(instance, field_name).aset(value) for field_name, value in m2m_fields]
-        await asyncio.gather(*m2m_set_tasks)
+        for attr, value in m2m_fields:
+            field = getattr(instance, attr)
+            field.set(value)
 
         return instance

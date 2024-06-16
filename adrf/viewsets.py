@@ -1,7 +1,6 @@
 import asyncio
 from functools import update_wrapper
 
-from django.core.exceptions import ImproperlyConfigured
 from django.utils.decorators import classonlymethod
 from django.utils.functional import classproperty
 
@@ -52,31 +51,36 @@ class ViewSetMixin(DRFViewSetMixin):
 
         # actions must not be empty
         if not actions:
-            raise TypeError("The `actions` argument must be provided when "
-                            "calling `.as_view()` on a ViewSet. For example "
-                            "`.as_view({'get': 'list'})`")
+            raise TypeError(
+                "The `actions` argument must be provided when "
+                "calling `.as_view()` on a ViewSet. For example "
+                "`.as_view({'get': 'list'})`"
+            )
 
         # sanitize keyword arguments
         for key in initkwargs:
             if key in cls.http_method_names:
-                raise TypeError("You tried to pass in the %s method name as a "
-                                "keyword argument to %s(). Don't do that."
-                                % (key, cls.__name__))
+                raise TypeError(
+                    "You tried to pass in the %s method name as a "
+                    "keyword argument to %s(). Don't do that." % (key, cls.__name__)
+                )
             if not hasattr(cls, key):
-                raise TypeError("%s() received an invalid keyword %r" % (
-                    cls.__name__, key))
+                raise TypeError(
+                    "%s() received an invalid keyword %r" % (cls.__name__, key)
+                )
 
         # name and suffix are mutually exclusive
-        if 'name' in initkwargs and 'suffix' in initkwargs:
+        if "name" in initkwargs and "suffix" in initkwargs:
             raise TypeError(
                 "%s() received both `name` and `suffix`, which are "
-                "mutually exclusive arguments." % (cls.__name__))
+                "mutually exclusive arguments." % (cls.__name__)
+            )
 
         def view(request, *args, **kwargs):
             self = cls(**initkwargs)
 
-            if 'get' in actions and 'head' not in actions:
-                actions['head'] = actions['get']
+            if "get" in actions and "head" not in actions:
+                actions["head"] = actions["get"]
 
             # We also store the mapping of request methods to actions,
             # so that we can later set the action attribute.
@@ -99,8 +103,8 @@ class ViewSetMixin(DRFViewSetMixin):
         async def async_view(request, *args, **kwargs):
             self = cls(**initkwargs)
 
-            if 'get' in actions and 'head' not in actions:
-                actions['head'] = actions['get']
+            if "get" in actions and "head" not in actions:
+                actions["head"] = actions["get"]
 
             # We also store the mapping of request methods to actions,
             # so that we can later set the action attribute.
@@ -140,11 +144,10 @@ class ViewSetMixin(DRFViewSetMixin):
 
 
 class ViewSet(ViewSetMixin, APIView):
-
     @classproperty
     def view_is_async(cls):
         """
-        Checks whether viewset methods are coroutines.
+        Checks whether any viewset methods are coroutines.
         """
         actions = [
             "create",
@@ -162,13 +165,16 @@ class ViewSet(ViewSetMixin, APIView):
             for method in methods
             if callable(method)
         ]
-        is_async = any(result)
-        if is_async and not all(result):
-            raise ImproperlyConfigured(
-                f"{cls.__qualname__} action handlers must either be all sync "
-                "or all async."
-            )
-        return is_async
+
+    
+        return any(result)
+        # is_async = any(result)
+        # if is_async and not all(result):
+        #     raise ImproperlyConfigured(
+        #         f"{cls.__qualname__} action handlers must either be all sync "
+        #         "or all async."
+        #     )
+        # return is_async
     
 
 class ModelViewSet(
@@ -213,5 +219,3 @@ class ModelViewSet(
         self.check_object_permissions(self.request, obj)
 
         return obj
-
-    

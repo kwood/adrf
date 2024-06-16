@@ -5,7 +5,7 @@
 # Requirements
 
 * Python 3.8+
-* Django 4.1
+* Django 4.1+
 
 We **highly recommend** and only officially support the latest patch release of
 each Python and Django series.
@@ -37,7 +37,38 @@ For example:
 ```python
 from adrf.views import APIView
 
+class AsyncAuthentication(BaseAuthentication):
+    async def authenticate(self, request) -> tuple[User, None]:
+        return user, None
+
+class AsyncPermission:
+    async def has_permission(self, request, view) -> bool:
+        if random.random() < 0.7:
+            return False
+
+        return True
+
+    async def has_object_permission(self, request, view, obj):
+        if obj.user == request.user or request.user.is_superuser:
+            return True
+
+        return False
+
+class AsyncThrottle(BaseThrottle):
+    async def allow_request(self, request, view) -> bool:
+        if random.random() < 0.7:
+            return False
+
+        return True
+
+    def wait(self):
+        return 3
+
 class AsyncView(APIView):
+    authentication_classes = [AsyncAuthentication]
+    permission_classes = [AsyncPermission]
+    throttle_classes = [AsyncThrottle]
+
     async def get(self, request):
         return Response({"message": "This is an async class based view."})
 
@@ -89,4 +120,36 @@ urlpatterns = [
     path("", include(router.urls)),
 ]
 
+```
+
+# Async Serializers
+
+serializers.py
+
+```python
+from adrf.serializers import Serializer
+from rest_framework import serializers
+
+class AsyncSerializer(Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField()
+    age = serializers.IntegerField()
+```
+
+views.py
+
+```python
+from . import serializers
+from adrf.views import APIView
+
+class AsyncView(APIView):
+    async def get(self, request):
+        data = {
+            "username": "test",
+            "password": "test",
+            "age": 10,
+        }
+        serializer = serializers.AsyncSerializer(data=data)
+        serializer.is_valid()
+        return await serializer.adata
 ```
