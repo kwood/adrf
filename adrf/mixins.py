@@ -2,12 +2,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.mixins import (
     CreateModelMixin,
-    ListModelMixin,
-    RetrieveModelMixin,
-    UpdateModelMixin,
-    DestroyModelMixin,
 )
-from asgiref.sync import sync_to_async
 
 
 class AsyncCreateModelMixin(CreateModelMixin):
@@ -40,7 +35,7 @@ class AsyncListModelMixin:
             return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
-        items = await sync_to_async(getattr)(serializer, "data")
+        items = await serializer.adata
         return Response(items)
 
 
