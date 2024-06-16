@@ -39,6 +39,8 @@ def pytest_configure(config):
             "django.contrib.sessions",
             "django.contrib.sites",
             "django.contrib.staticfiles",
+            'adrf',
+            'tests.test_app',
             "rest_framework",
             "rest_framework.authtoken",
         ),

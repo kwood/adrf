@@ -5,8 +5,11 @@ from django.utils.decorators import classonlymethod
 from django.utils.functional import classproperty
 
 from adrf.mixins import (
-    AsyncCreateModelMixin, AsyncDestroyModelMixin, AsyncListModelMixin,
-    AsyncRetrieveModelMixin, AsyncUpdateModelMixin
+    AsyncCreateModelMixin,
+    AsyncDestroyModelMixin,
+    AsyncListModelMixin,
+    AsyncRetrieveModelMixin,
+    AsyncUpdateModelMixin,
 )
 from adrf.views import APIView
 from rest_framework.viewsets import ViewSetMixin as DRFViewSetMixin
@@ -65,9 +68,7 @@ class ViewSetMixin(DRFViewSetMixin):
                     "keyword argument to %s(). Don't do that." % (key, cls.__name__)
                 )
             if not hasattr(cls, key):
-                raise TypeError(
-                    "%s() received an invalid keyword %r" % (cls.__name__, key)
-                )
+                raise TypeError("%s() received an invalid keyword %r" % (cls.__name__, key))
 
         # name and suffix are mutually exclusive
         if "name" in initkwargs and "suffix" in initkwargs:
@@ -160,13 +161,8 @@ class ViewSet(ViewSetMixin, APIView):
         # We can't actually check _all_ handlers here, since we can't inspect with
         # cls.get_extra_actions() (causes recusion).
         methods = [getattr(cls, name) for name in actions if hasattr(cls, name)]
-        result = [
-            asyncio.iscoroutinefunction(method)
-            for method in methods
-            if callable(method)
-        ]
+        result = [asyncio.iscoroutinefunction(method) for method in methods if callable(method)]
 
-    
         return any(result)
         # is_async = any(result)
         # if is_async and not all(result):
@@ -175,7 +171,7 @@ class ViewSet(ViewSetMixin, APIView):
         #         "or all async."
         #     )
         # return is_async
-    
+
 
 class ModelViewSet(
     AsyncCreateModelMixin,
@@ -184,11 +180,12 @@ class ModelViewSet(
     AsyncUpdateModelMixin,
     AsyncDestroyModelMixin,
     ViewSet,
-    GenericAPIView
+    GenericAPIView,
 ):
     """
     Async version of ModelViewSet
     """
+
     async def get_object(self):
         """
         Returns the object the view is displaying.
@@ -203,10 +200,9 @@ class ModelViewSet(
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
 
         assert lookup_url_kwarg in self.kwargs, (
-            'Expected view %s to be called with a URL keyword argument '
+            "Expected view %s to be called with a URL keyword argument "
             'named "%s". Fix your URL conf, or set the `.lookup_field` '
-            'attribute on the view correctly.' %
-            (self.__class__.__name__, lookup_url_kwarg)
+            "attribute on the view correctly." % (self.__class__.__name__, lookup_url_kwarg)
         )
 
         filter_kwargs = {self.lookup_field: self.kwargs[lookup_url_kwarg]}

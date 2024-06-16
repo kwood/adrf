@@ -8,6 +8,6 @@ class AnimalSerializer(ModelSerializer):
     """
     Animal serializer for testing
     """
-    class Meta(ModelSerializer.Meta):
+    class Meta:
         model = Animal
         fields = ['id', 'name', 'sound']

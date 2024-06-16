@@ -116,6 +116,7 @@ class AsyncViewSetIntegrationTests(TestCase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert sanitise_json_error(response.data) == expected
 
+
 class AsyncModelViewSetIntegrationTests(TestCase):
     def setUp(self):
         self.list = AnimalViewSet.as_view({"get": "list"})
@@ -124,49 +125,47 @@ class AsyncModelViewSetIntegrationTests(TestCase):
         self.update = AnimalViewSet.as_view({"put": "update"})
         self.delete = AnimalViewSet.as_view({"delete": "destroy"})
 
-        self.animal = Animal.objects.create(name='Dog', sound='Woof')
+        self.animal = Animal.objects.create(name="Dog", sound="Woof")
 
     def test_create(self):
-        request = factory.post('/', {'name': 'Wolf', 'sound': 'Howl'})
+        request = factory.post("/", {"name": "Wolf", "sound": "Howl"})
         response = async_to_sync(self.create)(request)
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.data['name'] == 'Wolf'
-        assert response.data['sound'] == 'Howl'
-        assert response.data['id'] is not None
+        assert response.data["name"] == "Wolf"
+        assert response.data["sound"] == "Howl"
+        assert response.data["id"] is not None
 
     def test_update(self):
-        request = factory.put('/', {'name': 'Dog', 'sound': 'Growl'})
+        request = factory.put("/", {"name": "Dog", "sound": "Growl"})
         response = async_to_sync(self.update)(request, pk=self.animal.pk)
         assert response.status_code == status.HTTP_200_OK
-        assert response.data['sound'] == 'Growl'
+        assert response.data["sound"] == "Growl"
 
         # Test that the object was updated in the database
-        request = factory.get('/')
+        request = factory.get("/")
         response = async_to_sync(self.retrieve)(request, pk=self.animal.pk)
         assert response.status_code == status.HTTP_200_OK
-        assert response.data['sound'] == 'Growl'
+        assert response.data["sound"] == "Growl"
 
     def test_list(self):
-        request = factory.get('/')
+        request = factory.get("/")
         response = async_to_sync(self.list)(request)
         assert response.status_code == status.HTTP_200_OK
-        assert response.data == [
-            {'id': 1, 'name': 'Dog', 'sound': 'Woof'}
-        ]
-    
+        assert response.data == [{"id": 1, "name": "Dog", "sound": "Woof"}]
+
     def test_retrieve(self):
-        request = factory.get('/')
+        request = factory.get("/")
         response = async_to_sync(self.retrieve)(request, pk=self.animal.pk)
         assert response.status_code == status.HTTP_200_OK
-        assert response.data == {'id': self.animal.pk, 'name': 'Dog', 'sound': 'Woof'}
+        assert response.data == {"id": self.animal.pk, "name": "Dog", "sound": "Woof"}
 
     def test_delete(self):
-        request = factory.delete('/')
+        request = factory.delete("/")
         response = async_to_sync(self.delete)(request, pk=self.animal.pk)
         assert response.status_code == status.HTTP_204_NO_CONTENT
 
         # Test that the object was deleted from the database
-        request = factory.get('/')
+        request = factory.get("/")
         response = async_to_sync(self.list)(request)
         assert response.status_code == status.HTTP_200_OK
         assert response.data == []

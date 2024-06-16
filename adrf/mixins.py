@@ -7,7 +7,7 @@ from rest_framework.mixins import (
     UpdateModelMixin,
     DestroyModelMixin,
 )
-
+from asgiref.sync import sync_to_async
 
 
 class AsyncCreateModelMixin(CreateModelMixin):
@@ -17,12 +17,10 @@ class AsyncCreateModelMixin(CreateModelMixin):
 
     async def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        await serializer.is_valid_async(raise_exception=True)
+        serializer.is_valid(raise_exception=True)
         await self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data,
-                        status=status.HTTP_201_CREATED,
-                        headers=headers)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     async def perform_create(self, serializer):
         await serializer.asave()
@@ -42,7 +40,7 @@ class AsyncListModelMixin:
             return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
-        items = serializer.data
+        items = await sync_to_async(getattr)(serializer, "data")
         return Response(items)
 
 
@@ -63,15 +61,13 @@ class AsyncUpdateModelMixin:
     """
 
     async def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
+        partial = kwargs.pop("partial", False)
         instance = await self.get_object()
-        serializer = self.get_serializer(instance,
-                                         data=request.data,
-                                         partial=partial)
-        await serializer.is_valid_async(raise_exception=True)
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
         await self.perform_update(serializer)
 
-        if getattr(instance, '_prefetched_objects_cache', None):
+        if getattr(instance, "_prefetched_objects_cache", None):
             # If 'prefetch_related' has been applied to a queryset, we need to
             # forcibly invalidate the prefetch cache on the instance.
             instance._prefetched_objects_cache = {}
@@ -82,7 +78,7 @@ class AsyncUpdateModelMixin:
         await serializer.asave()
 
     async def partial_update(self, request, *args, **kwargs):
-        kwargs['partial'] = True
+        kwargs["partial"] = True
         return await self.aupdate(request, *args, **kwargs)
 
 
@@ -98,4 +94,3 @@ class AsyncDestroyModelMixin:
 
     async def perform_destroy(self, instance):
         await instance.adelete()
-        
